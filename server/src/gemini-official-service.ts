@@ -20,9 +20,9 @@ export class GeminiOfficialAudioService {
 
   // | Correct Name  | Voice Style |
   // | ------------- | ----------- |
+  // | Rasalgethi    | Informative |
   // | Enceladus     | Breathy     |
   // | Kore          | Firm        |
-  // | Rasalgethi    | Informative |
   // | Callirrhoe    | Easy-going  |
   // | Sulafat       | Warm        |
   // | Charon        | Informative |
