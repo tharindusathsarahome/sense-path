@@ -16,6 +16,21 @@ export class GeminiOfficialAudioService {
   static readonly MODEL_TRANSCRIBE = "gemini-2.5-flash";
   static readonly MODEL_TOOL_CALLING = "gemini-2.5-flash";
   static readonly MODEL_TTS = "gemini-2.5-flash-preview-tts";
+  static readonly VOICE_NAME = "Rasalgethi";
+
+  // | Correct Name  | Voice Style |
+  // | ------------- | ----------- |
+  // | Enceladus     | Breathy     |
+  // | Kore          | Firm        |
+  // | Rasalgethi    | Informative |
+  // | Callirrhoe    | Easy-going  |
+  // | Sulafat       | Warm        |
+  // | Charon        | Informative |
+  // | Algenib       | Gravelly    |
+  // | Zubenelgenubi | Casual      |
+  // | Umbriel       | Easy-going  |
+  // | Sadachbia     | Lively      |
+  // | Leda          | Youthful    |
 
   private ai: GoogleGenAI;
   private debugDir: string;
@@ -349,7 +364,7 @@ export class GeminiOfficialAudioService {
           responseModalities: ['AUDIO'],
           speechConfig: {
             voiceConfig: {
-              prebuiltVoiceConfig: { voiceName: 'Kore' },
+              prebuiltVoiceConfig: { voiceName: GeminiOfficialAudioService.VOICE_NAME },
             },
           },
         },
