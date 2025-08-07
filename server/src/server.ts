@@ -76,11 +76,30 @@ wss.on('connection', (ws) => {
             // Clean up temp file
             require('fs').unlinkSync(tempFile);
             
-            // Send text response instead of audio to avoid format issues
-            ws.send(JSON.stringify({
-              type: 'text',
-              data: `🎤 You said: "${transcription.user_input}"\n\n🤖 AI Response: ${transcription.model_output}`,
-            }));
+            // Convert Gemini response to audio using textToSpeech
+            try {
+              console.log(`🔊 [${clientId}] Converting text to speech: "${transcription.model_output}"`);
+              const audioBuffer = await geminiService.textToSpeech(transcription.model_output);
+              
+              // Send audio response to client
+              ws.send(JSON.stringify({
+                type: 'audio',
+                data: audioBuffer.toString('base64'),
+                metadata: {
+                  transcription: transcription.user_input,
+                  response: transcription.model_output
+                }
+              }));
+              
+              console.log(`✅ [${clientId}] Audio response sent (${audioBuffer.length} bytes)`);
+            } catch (ttsError) {
+              console.error(`❌ [${clientId}] Text-to-speech failed:`, ttsError);
+              // Fallback to text response if TTS fails
+              ws.send(JSON.stringify({
+                type: 'text',
+                data: `🎤 You said: "${transcription.user_input}"\n\n🤖 AI Response: ${transcription.model_output}`,
+              }));
+            }
             
             console.log(`✅ [${clientId}] Audio-to-text processing completed`);
           } catch (audioError) {

@@ -12,6 +12,10 @@ interface WebSocketMessage {
   data?: string;
   message?: string;
   mimeType?: string;
+  metadata?: {
+    transcription?: string;
+    response?: string;
+  };
 }
 
 export default function App() {
@@ -128,19 +132,16 @@ export default function App() {
         break;
       case 'audio':
         console.log('🎵 Received audio response from server');
-        console.log('⚠️ WARNING: Server sent audio but we expected text-only responses');
         if (message.data) {
           console.log(`📊 Audio data length: ${message.data.length} characters`);
-          console.log('🚨 This may cause AVFoundation errors - server should send text instead');
           
-          // For now, show error message instead of trying to play
-          setStatusText('Audio received but playback disabled to prevent errors');
-          setTimeout(() => {
-            setStatusText('Ready to record');
-          }, 3000);
+          // Show transcription and response in status if available
+          if (message.metadata) {
+            setStatusText(`🎤 "${message.metadata.transcription}" → 🤖 "${message.metadata.response}"`);
+          }
           
-          // Uncomment this line if you want to attempt playback anyway:
-          // await playAudioResponse(message.data);
+          // Play the audio response
+          await playAudioResponse(message.data);
         } else {
           console.log('⚠️  No audio data in message');
           setStatusText('Empty audio received');
