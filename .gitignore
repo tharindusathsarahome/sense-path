@@ -1,0 +1,32 @@
+# Dependencies
+server/node_modules/
+client/node_modules/
+node_modules/
+
+# Build outputs
+server/dist/
+client/dist/
+client/.expo/
+
+# Environment variables
+server/.env
+client/.env
+
+# Debug files
+server/debug_audio/*.wav
+server/debug_audio/*.json
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
