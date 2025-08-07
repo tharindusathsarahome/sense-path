@@ -3,7 +3,6 @@ import express from 'express';
 import http from 'http';
 import WebSocket from 'ws';
 import cors from 'cors';
-import { join } from 'path';
 import { GeminiOfficialAudioService } from './gemini-official-service';
 
 const app = express();

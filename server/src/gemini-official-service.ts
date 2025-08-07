@@ -12,6 +12,11 @@ import { describeSurroundings, RecognitionArgs } from './modules/recognition';
 import { getWeatherAndLight, WeatherArgs } from './modules/weather';
 
 export class GeminiOfficialAudioService {
+  // Model definitions
+  static readonly MODEL_TRANSCRIBE = "gemini-2.5-flash";
+  static readonly MODEL_TOOL_CALLING = "gemini-2.5-flash";
+  static readonly MODEL_TTS = "gemini-2.5-flash-preview-tts";
+
   private ai: GoogleGenAI;
   private debugDir: string;
   private messageCounter: number = 0;
@@ -189,7 +194,7 @@ export class GeminiOfficialAudioService {
 
       console.log('🔄 Calling Gemini for audio transcription...');
       const transcribeResponse = await this.ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: GeminiOfficialAudioService.MODEL_TRANSCRIBE,
         contents: transcribeContents,
       });
 
@@ -209,7 +214,7 @@ export class GeminiOfficialAudioService {
       const toolContents: any[] = [{ role: 'user', parts: [{ text: transcription }] }];
 
       const toolResult = await this.ai.models.generateContent({
-        model: "gemini-2.5-pro",
+        model: GeminiOfficialAudioService.MODEL_TOOL_CALLING,
         contents: toolContents,
         config: { tools: [{ functionDeclarations: this.functionDeclarations }] },
       });
@@ -263,7 +268,7 @@ export class GeminiOfficialAudioService {
       });
 
       const finalResult = await this.ai.models.generateContent({
-        model: "gemini-2.5-pro",
+        model: GeminiOfficialAudioService.MODEL_TOOL_CALLING,
         contents: toolContents,
         config: { tools: [{ functionDeclarations: this.functionDeclarations }] },
       });
@@ -307,7 +312,7 @@ export class GeminiOfficialAudioService {
 
       console.log('🔄 Calling Gemini for audio understanding...');
       const response = await this.ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: GeminiOfficialAudioService.MODEL_TRANSCRIBE,
         contents: contents,
       });
 
@@ -338,7 +343,7 @@ export class GeminiOfficialAudioService {
       console.log(`🗣️ Generating speech for: "${text}"`);
 
       const response = await this.ai.models.generateContent({
-        model: "gemini-2.5-flash-preview-tts",
+        model: GeminiOfficialAudioService.MODEL_TTS,
         contents: [{ parts: [{ text: `Say cheerfully: ${text}` }] }],
         config: {
           responseModalities: ['AUDIO'],
@@ -465,7 +470,7 @@ export class GeminiOfficialAudioService {
       const toolContents: any[] = [{ role: 'user', parts: [{ text: textInput }] }];
 
       const toolResult = await this.ai.models.generateContent({
-        model: "gemini-2.5-pro",
+        model: GeminiOfficialAudioService.MODEL_TOOL_CALLING,
         contents: toolContents,
         config: { tools: [{ functionDeclarations: this.functionDeclarations }] },
       });
@@ -519,7 +524,7 @@ export class GeminiOfficialAudioService {
       });
 
       const finalResult = await this.ai.models.generateContent({
-        model: "gemini-2.5-pro",
+        model: GeminiOfficialAudioService.MODEL_TOOL_CALLING,
         contents: toolContents,
         config: { tools: [{ functionDeclarations: this.functionDeclarations }] },
       });
