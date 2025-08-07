@@ -69,6 +69,7 @@ export default function App() {
         playsInSilentModeIOS: true,
         playThroughEarpieceAndroid: false,
         staysActiveInBackground: false,
+        shouldDuckAndroid: true,
       });
     } catch (error) {
       console.error('Error setting up audio:', error);
@@ -197,6 +198,15 @@ export default function App() {
 
       console.log('🎵 Loading audio for playback...');
       
+      // Ensure audio plays through loudspeaker
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+        playThroughEarpieceAndroid: false,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: true,
+      });
+      
       // Use simpler audio creation without extra configuration
       const { sound } = await Audio.Sound.createAsync({ uri });
       soundRef.current = sound;
@@ -205,13 +215,22 @@ export default function App() {
       console.log('▶️ Starting playback...');
       
       // Set up completion handler
-      sound.setOnPlaybackStatusUpdate((status) => {
+      sound.setOnPlaybackStatusUpdate(async (status) => {
         if (status.isLoaded && status.didJustFinish) {
           console.log('🏁 Audio playback finished');
           setStatusText('Ready to record');
           sound.unloadAsync();
           // Clean up the file
           FileSystem.deleteAsync(uri, { idempotent: true });
+          
+          // Restore audio mode for recording
+          await Audio.setAudioModeAsync({
+            allowsRecordingIOS: true,
+            playsInSilentModeIOS: true,
+            playThroughEarpieceAndroid: false,
+            staysActiveInBackground: false,
+            shouldDuckAndroid: true,
+          });
         }
       });
       
@@ -246,6 +265,19 @@ export default function App() {
         } catch (cleanupError) {
           console.error('Error during cleanup:', cleanupError);
         }
+      }
+      
+      // Restore audio mode for recording after error
+      try {
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: true,
+          playsInSilentModeIOS: true,
+          playThroughEarpieceAndroid: false,
+          staysActiveInBackground: false,
+          shouldDuckAndroid: true,
+        });
+      } catch (audioModeError) {
+        console.error('Error restoring audio mode:', audioModeError);
       }
     }
   };

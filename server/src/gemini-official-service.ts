@@ -1,4 +1,5 @@
 import { GoogleGenAI } from '@google/genai';
+import { GEMINI_TRANSCRIBE_PROMPT } from './gemini-transcribe-prompt';
 import * as fs from 'node:fs';
 import * as wav from 'wav';
 import { join } from 'path';
@@ -13,7 +14,7 @@ export class GeminiOfficialAudioService {
     this.ai = new GoogleGenAI({
       apiKey,
     });
-    
+
     // Create debug directory
     this.debugDir = join(process.cwd(), 'debug_audio');
     if (!existsSync(this.debugDir)) {
@@ -79,29 +80,22 @@ export class GeminiOfficialAudioService {
   async audioToText(audioFilePath: string): Promise<string> {
     try {
       console.log(`🎯 Processing audio file: ${audioFilePath}`);
-      
+
       // Read audio file as base64
       const base64AudioFile = fs.readFileSync(audioFilePath, {
         encoding: 'base64',
       });
-      
+
       console.log(`📊 Audio file size: ${base64AudioFile.length} characters (base64)`);
       const contents = [
-        { 
-          role: "system", 
-          text: `Transcribe the audio input and return a JSON object with two fields: 'user_input' (the transcribed text) and 'model_output' (your response to the user's request. if user asked a question answer it. if he tell you to do something, tell you agreed it). Respond only with the JSON.
-
-    Sample JSON:
-    {
-      "user_input": "What's the weather like today?",
-      "model_output": "The weather today is sunny with a high of 25°C."
-    }
-    ` 
+        {
+          role: "system",
+          text: GEMINI_TRANSCRIBE_PROMPT,
         },
         {
           inlineData: {
-        mimeType: "audio/wav",
-        data: base64AudioFile,
+            mimeType: "audio/wav",
+            data: base64AudioFile,
           },
         },
       ];
@@ -114,17 +108,17 @@ export class GeminiOfficialAudioService {
 
       const textResult = response.text || '';
       console.log(`💬 Transcribed text: "${textResult}"`);
-      
+
       // Save transcription for debugging
       const transcriptionFile = join(
-        this.debugDir, 
+        this.debugDir,
         `transcription_${Date.now()}.txt`
       );
       fs.writeFileSync(transcriptionFile, textResult);
       console.log(`💾 Saved transcription: ${transcriptionFile}`);
 
       return textResult;
-      
+
     } catch (error) {
       console.error('❌ Error in audio to text:', error);
       throw error;
@@ -153,7 +147,7 @@ export class GeminiOfficialAudioService {
 
       const data = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
       const mimeType = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.mimeType;
-      
+
       if (!data) {
         throw new Error('No audio data received from Gemini TTS');
       }
@@ -181,7 +175,7 @@ export class GeminiOfficialAudioService {
       console.log('🔄 Converting PCM to WAV format...');
       const wavHeader = this.createWavHeaderForPcm(audioBuffer.length, 24000, 1, 16);
       const wavFile = Buffer.concat([wavHeader, audioBuffer]);
-      
+
       console.log(`🎵 Generated WAV file: ${wavFile.length} bytes (${audioBuffer.length} data + ${wavHeader.length} header)`);
 
       // Save the generated audio
@@ -190,7 +184,7 @@ export class GeminiOfficialAudioService {
       console.log(`💾 Saved generated speech: ${outputFile}`);
 
       return wavFile;
-      
+
     } catch (error) {
       console.error('❌ Error in text to speech:', error);
       throw error;
@@ -204,11 +198,11 @@ export class GeminiOfficialAudioService {
     try {
       this.messageCounter++;
       console.log(`🎯 Starting audio processing flow #${this.messageCounter}`);
-      
+
       // Step 1: Convert audio to text
       console.log('📝 Step 1: Audio to Text');
       const transcribedText = await this.audioToText(audioFilePath);
-      
+
       // Step 2: Generate audio response with fallback
       console.log('🎤 Step 2: Text to Speech');
       try {
@@ -222,7 +216,7 @@ export class GeminiOfficialAudioService {
         const fallbackAudio = await this.generateSimpleAudioFallback(textResponse);
         return fallbackAudio;
       }
-      
+
     } catch (error) {
       console.error('❌ Error in audio processing flow:', error);
       throw error;
@@ -234,26 +228,26 @@ export class GeminiOfficialAudioService {
    */
   private async generateSimpleAudioFallback(text: string): Promise<Buffer> {
     console.log('🔄 Generating simple audio fallback...');
-    
+
     // Generate 1 second of silence as WAV
     const sampleRate = 16000;
     const duration = 1; // 1 second
     const numSamples = sampleRate * duration;
     const audioData = Buffer.alloc(numSamples * 2); // 16-bit samples, so 2 bytes each
-    
+
     // Fill with silence (zeros)
     audioData.fill(0);
-    
+
     // Create WAV header
     const wavHeader = this.createWavHeaderForPcm(audioData.length, sampleRate, 1, 16);
     const wavFile = Buffer.concat([wavHeader, audioData]);
-    
+
     console.log(`🔇 Generated ${duration}s silence: ${wavFile.length} bytes`);
-    
+
     // Save fallback info
     const fallbackFile = join(this.debugDir, `fallback_${Date.now()}.txt`);
     fs.writeFileSync(fallbackFile, `Fallback text: ${text}`);
-    
+
     return wavFile;
   }
 
@@ -266,18 +260,18 @@ export class GeminiOfficialAudioService {
       const tempFile = join(this.debugDir, `temp_${clientId}_${Date.now()}.wav`);
       const audioBuffer = Buffer.from(base64Audio, 'base64');
       fs.writeFileSync(tempFile, audioBuffer);
-      
+
       console.log(`💾 Saved temporary audio file: ${tempFile}`);
-      
+
       // Process using the complete flow
       const result = await this.processAudio(tempFile);
-      
+
       // Clean up temporary file
       fs.unlinkSync(tempFile);
       console.log(`🗑️ Cleaned up temporary file: ${tempFile}`);
-      
+
       return result;
-      
+
     } catch (error) {
       console.error('❌ Error processing base64 audio:', error);
       throw error;
