@@ -30,3 +30,5 @@ yarn-error.log*
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+server/debug_audio/
