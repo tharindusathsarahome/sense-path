@@ -60,53 +60,31 @@ wss.on('connection', (ws) => {
           console.log(`🎵 [${clientId}] Audio MIME type: ${data.mimeType || 'not specified'}`);
           try {
             // Send processing status
-            ws.send(JSON.stringify({ type: 'status', message: 'Processing audio...' }));
+            ws.send(JSON.stringify({ type: 'status', message: 'Processing audio with SAMSM...' }));
             
-            // Process audio using the new official service - audio to text only
-            const tempFile = join(process.cwd(), 'debug_audio', `temp_${clientId}_${Date.now()}.wav`);
-            const audioBuffer = Buffer.from(data.data, 'base64');
-            require('fs').writeFileSync(tempFile, audioBuffer);
-            // Get text transcription (extract JSON part from string)
-            const responseStr = await geminiService.audioToText(tempFile);
-            const jsonMatch = responseStr.match(/{[\s\S]*}/);
-            if (!jsonMatch) {
-              throw new Error('No JSON found in transcription response');
-            }
-            const transcription: Record<string, any> = JSON.parse(jsonMatch[0]);
-            // Clean up temp file
-            require('fs').unlinkSync(tempFile);
+            // Process audio using the new SAMSM-integrated service
+            const result = await geminiService.processBase64AudioWithSAMSM(data.data, clientId);
             
-            // Convert Gemini response to audio using textToSpeech
-            try {
-              console.log(`🔊 [${clientId}] Converting text to speech: "${transcription.model_output}"`);
-              const audioBuffer = await geminiService.textToSpeech(transcription.model_output);
-              
-              // Send audio response to client
-              ws.send(JSON.stringify({
-                type: 'audio',
-                data: audioBuffer.toString('base64'),
-                metadata: {
-                  transcription: transcription.user_input,
-                  response: transcription.model_output
-                }
-              }));
-              
-              console.log(`✅ [${clientId}] Audio response sent (${audioBuffer.length} bytes)`);
-            } catch (ttsError) {
-              console.error(`❌ [${clientId}] Text-to-speech failed:`, ttsError);
-              // Fallback to text response if TTS fails
-              ws.send(JSON.stringify({
-                type: 'text',
-                data: `🎤 You said: "${transcription.user_input}"\n\n🤖 AI Response: ${transcription.model_output}`,
-              }));
-            }
+            // Send comprehensive response to client
+            ws.send(JSON.stringify({
+              type: 'audio',
+              data: result.audioBuffer.toString('base64'),
+              metadata: {
+                transcription: result.transcription,
+                response: result.response,
+                mode: result.mode,
+                timestamp: new Date().toISOString()
+              }
+            }));
             
-            console.log(`✅ [${clientId}] Audio-to-text processing completed`);
+            console.log(`✅ [${clientId}] SAMSM audio response sent (${result.audioBuffer.length} bytes)`);
+            console.log(`📱 [${clientId}] App mode set to: ${result.mode.toUpperCase()}`);
+            
           } catch (audioError) {
-            console.error(`❌ [${clientId}] Audio processing failed:`, audioError);
+            console.error(`❌ [${clientId}] SAMSM audio processing failed:`, audioError);
             ws.send(JSON.stringify({
               type: 'error',
-              message: 'Audio processing failed: ' + (audioError instanceof Error ? audioError.message : 'Unknown error')
+              message: 'SAMSM audio processing failed: ' + (audioError instanceof Error ? audioError.message : 'Unknown error')
             }));
           }
           break;
@@ -114,20 +92,30 @@ wss.on('connection', (ws) => {
           console.log(`💬 [${clientId}] Processing text message: "${data.data}"`);
           try {
             // Send processing status
-            ws.send(JSON.stringify({ type: 'status', message: 'Processing text...' }));
+            ws.send(JSON.stringify({ type: 'status', message: 'Processing text with integrated SAMSM...' }));
             
-            // Send text response instead of audio to avoid format issues
+            // Process text directly with the tool calling method
+            const result = await geminiService.processTextWithTools(data.data);
+            
+            // Send comprehensive text response
             ws.send(JSON.stringify({
               type: 'text',
-              data: `💬 You typed: "${data.data}"\n\n🤖 AI Response: I received your message: ${data.data}`,
+              data: `💬 You typed: "${result.transcription}"\n\n🤖 AI Response: ${result.response}`,
+              metadata: {
+                transcription: result.transcription,
+                response: result.response,
+                mode: result.mode,
+                timestamp: new Date().toISOString()
+              }
             }));
             
-            console.log(`✅ [${clientId}] Text processing completed`);
+            console.log(`✅ [${clientId}] Integrated SAMSM text processing completed`);
+            console.log(`📱 [${clientId}] App mode set to: ${result.mode.toUpperCase()}`);
           } catch (textError) {
-            console.error(`❌ [${clientId}] Text processing failed:`, textError);
+            console.error(`❌ [${clientId}] Integrated SAMSM text processing failed:`, textError);
             ws.send(JSON.stringify({
               type: 'error',
-              message: 'Text processing failed: ' + (textError instanceof Error ? textError.message : 'Unknown error')
+              message: 'Integrated SAMSM text processing failed: ' + (textError instanceof Error ? textError.message : 'Unknown error')
             }));
           }
           break;

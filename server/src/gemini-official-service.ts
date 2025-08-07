@@ -1,16 +1,26 @@
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, Type, FunctionDeclaration } from '@google/genai';
 import { GEMINI_TRANSCRIBE_PROMPT } from './gemini-transcribe-prompt';
 import * as fs from 'node:fs';
 import * as wav from 'wav';
 import { join } from 'path';
 import { existsSync, mkdirSync } from 'fs';
+import { AppMode } from './types';
+
+// Import our mock sub-module functions AND their argument types
+import { startNavigation, NavigationArgs } from './modules/navigation';
+import { describeSurroundings, RecognitionArgs } from './modules/recognition';
+import { getWeatherAndLight, WeatherArgs } from './modules/weather';
 
 export class GeminiOfficialAudioService {
   private ai: GoogleGenAI;
   private debugDir: string;
   private messageCounter: number = 0;
+  private apiKey: string;
+  private functionDeclarations: FunctionDeclaration[];
+  private toolFunctions: Record<string, Function>;
 
   constructor(apiKey: string) {
+    this.apiKey = apiKey;
     this.ai = new GoogleGenAI({
       apiKey,
     });
@@ -21,6 +31,80 @@ export class GeminiOfficialAudioService {
       mkdirSync(this.debugDir, { recursive: true });
     }
     console.log(`🔧 Debug directory: ${this.debugDir}`);
+
+    // Initialize tool functions
+    this.toolFunctions = {
+      start_navigation: startNavigation,
+      describe_surroundings: describeSurroundings,
+      get_weather_and_light: getWeatherAndLight,
+    };
+
+    // Initialize function declarations for tool calling
+    this.functionDeclarations = [
+      {
+        name: 'start_navigation',
+        description: 'Initiates turn-by-turn navigation to a specified destination.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            destination: {
+              type: Type.STRING,
+              description: 'The final destination, e.g., "123 Main St, Anytown" or "local library".',
+            },
+            travel_mode: {
+              type: Type.STRING,
+              enum: ['walking', 'transit'],
+              description: 'The method of travel.'
+            },
+            suggested_mode: {
+              type: Type.STRING,
+              enum: ['navigation', 'exploration', 'idle'],
+              description: 'The most appropriate application mode for this action.'
+            }
+          },
+          required: ['destination', 'travel_mode', 'suggested_mode'],
+        },
+      },
+      {
+        name: 'describe_surroundings',
+        description: 'Analyzes the current environment from the camera to describe objects, faces, or the general scene.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            analysis_type: {
+              type: Type.STRING,
+              enum: ['object', 'face', 'scene'],
+              description: 'The type of analysis to perform on the visual input.'
+            },
+            suggested_mode: {
+              type: Type.STRING,
+              enum: ['exploration', 'social', 'idle'],
+              description: 'The most appropriate application mode for this action.'
+            }
+          },
+          required: ['analysis_type', 'suggested_mode'],
+        },
+      },
+      {
+        name: 'get_weather_and_light',
+        description: 'Fetches the current weather and ambient light conditions for a given location to assess safety and comfort.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            location: {
+              type: Type.STRING,
+              description: 'The city or area to get weather for, e.g., "San Francisco, CA".',
+            },
+            suggested_mode: {
+              type: Type.STRING,
+              enum: ['weather_check', 'idle'],
+              description: 'The most appropriate application mode for this action.'
+            }
+          },
+          required: ['location', 'suggested_mode'],
+        },
+      },
+    ];
   }
 
   /**
@@ -75,7 +159,128 @@ export class GeminiOfficialAudioService {
   }
 
   /**
-   * Step 1: Audio Understanding - Convert audio to text
+   * Enhanced Audio Understanding with SAMSM Tool Calling
+   * Convert audio to text and process with intelligent tool selection
+   */
+  async audioToTextWithTools(audioFilePath: string): Promise<{ transcription: string; response: string; mode: AppMode }> {
+    try {
+      console.log(`🎯 Processing audio file with tools: ${audioFilePath}`);
+
+      // Read audio file as base64
+      const base64AudioFile = fs.readFileSync(audioFilePath, {
+        encoding: 'base64',
+      });
+
+      console.log(`📊 Audio file size: ${base64AudioFile.length} characters (base64)`);
+
+      // First, transcribe the audio
+      const transcribeContents = [
+        {
+          role: "system",
+          text: "Transcribe the following audio and return only the transcribed text without any additional formatting or JSON.",
+        },
+        {
+          inlineData: {
+            mimeType: "audio/wav",
+            data: base64AudioFile,
+          },
+        },
+      ];
+
+      console.log('🔄 Calling Gemini for audio transcription...');
+      const transcribeResponse = await this.ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: transcribeContents,
+      });
+
+      const transcription = transcribeResponse.text?.trim() || '';
+      console.log(`💬 Transcribed text: "${transcription}"`);
+
+      // Save transcription for debugging
+      const transcriptionFile = join(
+        this.debugDir,
+        `transcription_${Date.now()}.txt`
+      );
+      fs.writeFileSync(transcriptionFile, transcription);
+      console.log(`💾 Saved transcription: ${transcriptionFile}`);
+
+      // Now process with SAMSM tool calling
+      console.log('🧠 Processing with SAMSM tool calling...');
+      const toolContents: any[] = [{ role: 'user', parts: [{ text: transcription }] }];
+
+      const toolResult = await this.ai.models.generateContent({
+        model: "gemini-2.5-pro",
+        contents: toolContents,
+        config: { tools: [{ functionDeclarations: this.functionDeclarations }] },
+      });
+
+      // Handle tool calling response
+      const responseText = toolResult.text ?? "I could not determine a text response.";
+      
+      if (!toolResult.functionCalls || toolResult.functionCalls.length === 0) {
+        console.log("AI decided not to call a function. Returning direct response.");
+        return { transcription, response: responseText, mode: 'idle' };
+      }
+
+      const functionCall = toolResult.functionCalls[0];
+      const { name, args } = functionCall;
+      console.log(`\nAI decided to call function: ${name}`);
+      console.log(`With arguments: ${JSON.stringify(args)}`);
+
+      const suggested_mode = args ? (args.suggested_mode as AppMode) : 'idle';
+      console.log(`AI suggested App Mode: ${suggested_mode.toUpperCase()}`);
+
+      // Execute the chosen function
+      let toolResponse: object;
+      
+      switch (name) {
+        case 'start_navigation':
+          toolResponse = startNavigation(args as unknown as NavigationArgs);
+          break;
+        
+        case 'describe_surroundings':
+          toolResponse = describeSurroundings(args as unknown as RecognitionArgs);
+          break;
+          
+        case 'get_weather_and_light':
+          toolResponse = getWeatherAndLight(args as unknown as WeatherArgs);
+          break;
+          
+        default:
+          throw new Error(`Error: AI tried to call an unknown function "${name}"`);
+      }
+
+      // Get final user-friendly response
+      toolContents.push({ role: 'model', parts: [{ functionCall: functionCall }] });
+      toolContents.push({
+        role: 'user',
+        parts: [{
+          functionResponse: {
+            name: name,
+            response: { result: toolResponse },
+          },
+        }],
+      });
+
+      const finalResult = await this.ai.models.generateContent({
+        model: "gemini-2.5-pro",
+        contents: toolContents,
+        config: { tools: [{ functionDeclarations: this.functionDeclarations }] },
+      });
+
+      const finalResponseText = (finalResult.text ?? 'Action completed.').trim();
+      console.log(`\nFinal AI Response: "${finalResponseText}"`);
+
+      return { transcription, response: finalResponseText, mode: suggested_mode };
+
+    } catch (error) {
+      console.error('❌ Error in audio to text with tools:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Step 1: Audio Understanding - Convert audio to text (Legacy method)
    */
   async audioToText(audioFilePath: string): Promise<string> {
     try {
@@ -252,6 +457,131 @@ export class GeminiOfficialAudioService {
   }
 
   /**
+   * Process text input with SAMSM tool calling
+   */
+  async processTextWithTools(textInput: string): Promise<{ transcription: string; response: string; mode: AppMode }> {
+    try {
+      console.log('🧠 Processing text with SAMSM tool calling...');
+      const toolContents: any[] = [{ role: 'user', parts: [{ text: textInput }] }];
+
+      const toolResult = await this.ai.models.generateContent({
+        model: "gemini-2.5-pro",
+        contents: toolContents,
+        config: { tools: [{ functionDeclarations: this.functionDeclarations }] },
+      });
+
+      // Handle tool calling response
+      const responseText = toolResult.text ?? "I could not determine a text response.";
+      
+      if (!toolResult.functionCalls || toolResult.functionCalls.length === 0) {
+        console.log("AI decided not to call a function. Returning direct response.");
+        return { transcription: textInput, response: responseText, mode: 'idle' };
+      }
+
+      const functionCall = toolResult.functionCalls[0];
+      const { name, args } = functionCall;
+      console.log(`\nAI decided to call function: ${name}`);
+      console.log(`With arguments: ${JSON.stringify(args)}`);
+
+      const suggested_mode = args ? (args.suggested_mode as AppMode) : 'idle';
+      console.log(`AI suggested App Mode: ${suggested_mode.toUpperCase()}`);
+
+      // Execute the chosen function
+      let toolResponse: object;
+      
+      switch (name) {
+        case 'start_navigation':
+          toolResponse = startNavigation(args as unknown as NavigationArgs);
+          break;
+        
+        case 'describe_surroundings':
+          toolResponse = describeSurroundings(args as unknown as RecognitionArgs);
+          break;
+          
+        case 'get_weather_and_light':
+          toolResponse = getWeatherAndLight(args as unknown as WeatherArgs);
+          break;
+          
+        default:
+          throw new Error(`Error: AI tried to call an unknown function "${name}"`);
+      }
+
+      // Get final user-friendly response
+      toolContents.push({ role: 'model', parts: [{ functionCall: functionCall }] });
+      toolContents.push({
+        role: 'user',
+        parts: [{
+          functionResponse: {
+            name: name,
+            response: { result: toolResponse },
+          },
+        }],
+      });
+
+      const finalResult = await this.ai.models.generateContent({
+        model: "gemini-2.5-pro",
+        contents: toolContents,
+        config: { tools: [{ functionDeclarations: this.functionDeclarations }] },
+      });
+
+      const finalResponseText = (finalResult.text ?? 'Action completed.').trim();
+      console.log(`\nFinal AI Response: "${finalResponseText}"`);
+
+      return { transcription: textInput, response: finalResponseText, mode: suggested_mode };
+
+    } catch (error) {
+      console.error('❌ Error in text processing with tools:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Enhanced audio processing with integrated SAMSM tool calling
+   * Audio input -> Text -> Tool Calling -> Audio response
+   */
+  async processAudioWithSAMSM(audioFilePath: string): Promise<{ audioBuffer: Buffer; mode: AppMode; transcription: string; response: string }> {
+    try {
+      this.messageCounter++;
+      console.log(`🎯 Starting integrated audio processing flow #${this.messageCounter}`);
+
+      // Step 1: Convert audio to text and process with integrated tool calling
+      console.log('📝🧠 Step 1: Audio to Text with SAMSM Tool Calling');
+      const { transcription, response: finalResponse, mode } = await this.audioToTextWithTools(audioFilePath);
+
+      console.log(`🧠 SAMSM Response: "${finalResponse}"`);
+      console.log(`📱 Suggested App Mode: ${mode.toUpperCase()}`);
+
+      // Step 2: Generate audio response using existing TTS
+      console.log('🎤 Step 2: Text to Speech');
+      try {
+        const audioResponse = await this.textToSpeech(finalResponse);
+        console.log(`✅ Integrated audio processing flow #${this.messageCounter} completed`);
+        
+        return {
+          audioBuffer: audioResponse,
+          mode,
+          transcription,
+          response: finalResponse
+        };
+      } catch (ttsError) {
+        console.error('❌ TTS failed, creating silent fallback:', ttsError);
+        // Fallback to silent audio
+        const fallbackAudio = await this.generateSimpleAudioFallback(finalResponse);
+        return {
+          audioBuffer: fallbackAudio,
+          mode,
+          transcription,
+          response: finalResponse
+        };
+      }
+
+    } catch (error) {
+      console.error('❌ Error in integrated audio processing flow:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Process base64 audio (for WebSocket integration)
    */
   async processBase64Audio(base64Audio: string, clientId: string): Promise<Buffer> {
@@ -274,6 +604,33 @@ export class GeminiOfficialAudioService {
 
     } catch (error) {
       console.error('❌ Error processing base64 audio:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Process base64 audio with SAMSM integration (for WebSocket integration)
+   */
+  async processBase64AudioWithSAMSM(base64Audio: string, clientId: string): Promise<{ audioBuffer: Buffer; mode: AppMode; transcription: string; response: string }> {
+    try {
+      // Save the incoming audio to a temporary file
+      const tempFile = join(this.debugDir, `temp_samsm_${clientId}_${Date.now()}.wav`);
+      const audioBuffer = Buffer.from(base64Audio, 'base64');
+      fs.writeFileSync(tempFile, audioBuffer);
+
+      console.log(`💾 Saved temporary audio file for SAMSM: ${tempFile}`);
+
+      // Process using the enhanced SAMSM flow
+      const result = await this.processAudioWithSAMSM(tempFile);
+
+      // Clean up temporary file
+      fs.unlinkSync(tempFile);
+      console.log(`🗑️ Cleaned up temporary file: ${tempFile}`);
+
+      return result;
+
+    } catch (error) {
+      console.error('❌ Error processing base64 audio with SAMSM:', error);
       throw error;
     }
   }
