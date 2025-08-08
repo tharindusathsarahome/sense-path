@@ -57,12 +57,18 @@ wss.on('connection', (ws) => {
         case 'audio':
           console.log(`🎤 [${clientId}] Processing audio message (${data.data?.length || 0} chars)`);
           console.log(`🎵 [${clientId}] Audio MIME type: ${data.mimeType || 'not specified'}`);
+          
+          // Log location data if present
+          if (data.location) {
+            console.log(`📍 [${clientId}] Location: ${data.location.latitude}, ${data.location.longitude}`);
+          }
+          
           try {
             // Send processing status
             ws.send(JSON.stringify({ type: 'status', message: 'Processing audio with SAMSM...' }));
             
             // Process audio using the new SAMSM-integrated service
-            const result = await geminiService.processBase64AudioWithSAMSM(data.data, clientId);
+            const result = await geminiService.processBase64AudioWithSAMSM(data.data, clientId, data.location);
             
             // Send comprehensive response to client
             ws.send(JSON.stringify({

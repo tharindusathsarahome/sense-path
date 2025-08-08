@@ -80,6 +80,20 @@ export class GeminiOfficialAudioService {
               type: Type.STRING,
               enum: ['navigation', 'exploration', 'idle'],
               description: 'The most appropriate application mode for this action.'
+            },
+            current_location: {
+              type: Type.OBJECT,
+              description: 'The current location coordinates (latitude, longitude).',
+              properties: {
+                latitude: {
+                  type: Type.NUMBER,
+                  description: 'Current latitude coordinate.'
+                },
+                longitude: {
+                  type: Type.NUMBER,
+                  description: 'Current longitude coordinate.'
+                }
+              }
             }
           },
           required: ['destination', 'travel_mode', 'suggested_mode'],
@@ -107,21 +121,35 @@ export class GeminiOfficialAudioService {
       },
       {
         name: 'get_weather_and_light',
-        description: 'Fetches the current weather and ambient light conditions for a given location to assess safety and comfort.',
+        description: 'Fetches the current weather and ambient light conditions. Use this when the user asks about weather, temperature, current conditions, or when location data is available and weather-related information would be helpful.',
         parameters: {
           type: Type.OBJECT,
           properties: {
             location: {
               type: Type.STRING,
-              description: 'The city or area to get weather for, e.g., "San Francisco, CA".',
+              description: 'The city or area to get weather for, e.g., "San Francisco, CA". Optional if current_location coordinates are available.',
             },
             suggested_mode: {
               type: Type.STRING,
               enum: ['weather_check', 'idle'],
               description: 'The most appropriate application mode for this action.'
+            },
+            current_location: {
+              type: Type.OBJECT,
+              description: 'The current location coordinates (latitude, longitude). Use this when coordinates are available.',
+              properties: {
+                latitude: {
+                  type: Type.NUMBER,
+                  description: 'Current latitude coordinate.'
+                },
+                longitude: {
+                  type: Type.NUMBER,
+                  description: 'Current longitude coordinate.'
+                }
+              }
             }
           },
-          required: ['location', 'suggested_mode'],
+          required: ['suggested_mode'],
         },
       },
     ];
@@ -182,9 +210,12 @@ export class GeminiOfficialAudioService {
    * Enhanced Audio Understanding with SAMSM Tool Calling
    * Convert audio to text and process with intelligent tool selection
    */
-  async audioToTextWithTools(audioFilePath: string): Promise<{ transcription: string; response: string; mode: AppMode }> {
+  async audioToTextWithTools(audioFilePath: string, location?: { latitude: number; longitude: number }): Promise<{ transcription: string; response: string; mode: AppMode }> {
     try {
       console.log(`🎯 Processing audio file with tools: ${audioFilePath}`);
+      if (location) {
+        console.log(`📍 Using location: ${location.latitude}, ${location.longitude}`);
+      }
 
       // Read audio file as base64
       const base64AudioFile = fs.readFileSync(audioFilePath, {
@@ -196,8 +227,10 @@ export class GeminiOfficialAudioService {
       // First, transcribe the audio
       const transcribeContents = [
         {
-          role: "system",
-          text: "Transcribe the following audio and return only the transcribed text without any additional formatting or JSON.",
+          role: "user",
+          parts: [{
+            text: "Transcribe the following audio and return only the transcribed text without any additional formatting or JSON."
+          }]
         },
         {
           inlineData: {
@@ -224,9 +257,26 @@ export class GeminiOfficialAudioService {
       fs.writeFileSync(transcriptionFile, transcription);
       console.log(`💾 Saved transcription: ${transcriptionFile}`);
 
-      // Now process with SAMSM tool calling
+      // Now process with SAMSM tool calling, including location context
       console.log('🧠 Processing with SAMSM tool calling...');
-      const toolContents: any[] = [{ role: 'user', parts: [{ text: transcription }] }];
+      
+      // Create context-aware prompt that includes location information
+      let contextualPrompt = transcription;
+      if (location) {
+        contextualPrompt = `You are a helpful assistant with access to navigation, weather, and recognition tools. When users ask about weather, directions, or environmental conditions, use the appropriate tools available to you.
+
+User said: "${transcription}"
+
+IMPORTANT CONTEXT: The user's current location is available (latitude: ${location.latitude}, longitude: ${location.longitude}). If the user is asking about weather, current conditions, or anything location-related, you should use the appropriate function with this location data.`;
+      } else {
+        contextualPrompt = `You are a helpful assistant with access to navigation, weather, and recognition tools. When users ask about weather, directions, or environmental conditions, use the appropriate tools available to you.
+
+User said: "${transcription}"`;
+      }
+      
+      const toolContents: any[] = [
+        { role: 'user', parts: [{ text: contextualPrompt }] }
+      ];
 
       const toolResult = await this.ai.models.generateContent({
         model: GeminiOfficialAudioService.MODEL_TOOL_CALLING,
@@ -250,12 +300,24 @@ export class GeminiOfficialAudioService {
       const suggested_mode = args ? (args.suggested_mode as AppMode) : 'idle';
       console.log(`AI suggested App Mode: ${suggested_mode.toUpperCase()}`);
 
+      // Add location data to navigation arguments if available
+      if (name === 'start_navigation' && location) {
+        (args as any).current_location = location;
+        console.log(`📍 Added current location to navigation args`);
+      }
+
+      // Add location data to weather arguments if available
+      if (name === 'get_weather_and_light' && location) {
+        (args as any).current_location = location;
+        console.log(`📍 Added current location to weather args`);
+      }
+
       // Execute the chosen function
       let toolResponse: object;
       
       switch (name) {
         case 'start_navigation':
-          toolResponse = startNavigation(args as unknown as NavigationArgs);
+          toolResponse = await startNavigation(args as unknown as NavigationArgs);
           break;
         
         case 'describe_surroundings':
@@ -263,7 +325,7 @@ export class GeminiOfficialAudioService {
           break;
           
         case 'get_weather_and_light':
-          toolResponse = getWeatherAndLight(args as unknown as WeatherArgs);
+          toolResponse = await getWeatherAndLight(args as unknown as WeatherArgs);
           break;
           
         default:
@@ -511,7 +573,7 @@ export class GeminiOfficialAudioService {
       
       switch (name) {
         case 'start_navigation':
-          toolResponse = startNavigation(args as unknown as NavigationArgs);
+          toolResponse = await startNavigation(args as unknown as NavigationArgs);
           break;
         
         case 'describe_surroundings':
@@ -519,7 +581,7 @@ export class GeminiOfficialAudioService {
           break;
           
         case 'get_weather_and_light':
-          toolResponse = getWeatherAndLight(args as unknown as WeatherArgs);
+          toolResponse = await getWeatherAndLight(args as unknown as WeatherArgs);
           break;
           
         default:
@@ -559,14 +621,14 @@ export class GeminiOfficialAudioService {
    * Enhanced audio processing with integrated SAMSM tool calling
    * Audio input -> Text -> Tool Calling -> Audio response
    */
-  async processAudioWithSAMSM(audioFilePath: string): Promise<{ audioBuffer: Buffer; mode: AppMode; transcription: string; response: string }> {
+  async processAudioWithSAMSM(audioFilePath: string, location?: { latitude: number; longitude: number }): Promise<{ audioBuffer: Buffer; mode: AppMode; transcription: string; response: string }> {
     try {
       this.messageCounter++;
       console.log(`🎯 Starting integrated audio processing flow #${this.messageCounter}`);
 
       // Step 1: Convert audio to text and process with integrated tool calling
       console.log('📝🧠 Step 1: Audio to Text with SAMSM Tool Calling');
-      const { transcription, response: finalResponse, mode } = await this.audioToTextWithTools(audioFilePath);
+      const { transcription, response: finalResponse, mode } = await this.audioToTextWithTools(audioFilePath, location);
 
       console.log(`🧠 SAMSM Response: "${finalResponse}"`);
       console.log(`📱 Suggested App Mode: ${mode.toUpperCase()}`);
@@ -631,7 +693,7 @@ export class GeminiOfficialAudioService {
   /**
    * Process base64 audio with SAMSM integration (for WebSocket integration)
    */
-  async processBase64AudioWithSAMSM(base64Audio: string, clientId: string): Promise<{ audioBuffer: Buffer; mode: AppMode; transcription: string; response: string }> {
+  async processBase64AudioWithSAMSM(base64Audio: string, clientId: string, location?: { latitude: number; longitude: number }): Promise<{ audioBuffer: Buffer; mode: AppMode; transcription: string; response: string }> {
     try {
       // Save the incoming audio to a temporary file
       const tempFile = join(this.debugDir, `temp_samsm_${clientId}_${Date.now()}.wav`);
@@ -639,9 +701,12 @@ export class GeminiOfficialAudioService {
       fs.writeFileSync(tempFile, audioBuffer);
 
       console.log(`💾 Saved temporary audio file for SAMSM: ${tempFile}`);
+      if (location) {
+        console.log(`📍 Processing with location: ${location.latitude}, ${location.longitude}`);
+      }
 
       // Process using the enhanced SAMSM flow
-      const result = await this.processAudioWithSAMSM(tempFile);
+      const result = await this.processAudioWithSAMSM(tempFile, location);
 
       // Clean up temporary file
       fs.unlinkSync(tempFile);

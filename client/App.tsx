@@ -4,6 +4,7 @@ import { StyleSheet, Text, View, TouchableOpacity, Alert, Platform } from 'react
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
 import { Camera } from 'expo-camera';
+import * as Location from 'expo-location';
 
 const SERVER_URL = 'ws://192.168.1.82:3000';
 
@@ -12,6 +13,10 @@ interface WebSocketMessage {
   data?: string;
   message?: string;
   mimeType?: string;
+  location?: {
+    latitude: number;
+    longitude: number;
+  };
   metadata?: {
     transcription?: string;
     response?: string;
@@ -23,6 +28,7 @@ export default function App() {
   const [isConnected, setIsConnected] = useState(false);
   const [hasPermissions, setHasPermissions] = useState(false);
   const [statusText, setStatusText] = useState('Requesting permissions...');
+  const [currentLocation, setCurrentLocation] = useState<Location.LocationObject | null>(null);
   
   const recordingRef = useRef<Audio.Recording | null>(null);
   const soundRef = useRef<Audio.Sound | null>(null);
@@ -43,16 +49,22 @@ export default function App() {
       // Request camera permission
       const cameraPermission = await Camera.requestCameraPermissionsAsync();
       
-      if (audioPermission.status === 'granted' && cameraPermission.status === 'granted') {
+      // Request location permission
+      const locationPermission = await Location.requestForegroundPermissionsAsync();
+      
+      if (audioPermission.status === 'granted' && 
+          cameraPermission.status === 'granted' && 
+          locationPermission.status === 'granted') {
         setHasPermissions(true);
-        setStatusText('Permissions granted. Ready to connect.');
+        setStatusText('Permissions granted. Getting location...');
         await setupAudio();
+        await getCurrentLocation();
         connectToServer();
       } else {
-        setStatusText('Permissions denied. Please enable microphone and camera access.');
+        setStatusText('Permissions denied. Please enable microphone, camera, and location access.');
         Alert.alert(
           'Permissions Required',
-          'This app needs microphone and camera permissions to function properly.',
+          'This app needs microphone, camera, and location permissions to function properly.',
           [{ text: 'OK' }]
         );
       }
@@ -73,6 +85,27 @@ export default function App() {
       });
     } catch (error) {
       console.error('Error setting up audio:', error);
+    }
+  };
+
+  const getCurrentLocation = async () => {
+    try {
+      console.log('📍 Getting current location...');
+      setStatusText('Getting current location...');
+      
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+      
+      setCurrentLocation(location);
+      console.log('📍 Location obtained:', location.coords.latitude, location.coords.longitude);
+      setStatusText('Location obtained. Ready to connect.');
+      
+      return location;
+    } catch (error) {
+      console.error('Error getting location:', error);
+      setStatusText('Error getting location. Continuing without location...');
+      return null;
     }
   };
 
@@ -345,11 +378,15 @@ export default function App() {
         const fileInfo = await FileSystem.getInfoAsync(uri);
         console.log('📋 File info:', fileInfo);
 
-        // Send to server
+        // Send to server with location data
         const messageToSend = {
           type: 'audio',
           data: audioBase64,
-          mimeType: 'audio/wav'
+          mimeType: 'audio/wav',
+          location: currentLocation ? {
+            latitude: currentLocation.coords.latitude,
+            longitude: currentLocation.coords.longitude
+          } : undefined
         };
         
         console.log('📤 Sending audio to server...');
@@ -400,6 +437,22 @@ export default function App() {
     }
   };
 
+  const refreshLocation = async () => {
+    if (!hasPermissions) {
+      Alert.alert('Error', 'Location permission not granted');
+      return;
+    }
+    
+    setStatusText('Refreshing location...');
+    await getCurrentLocation();
+  };
+
+  const getLocationStatus = () => {
+    if (!hasPermissions) return 'No permissions';
+    if (!currentLocation) return 'No location';
+    return `📍 ${currentLocation.coords.latitude.toFixed(4)}, ${currentLocation.coords.longitude.toFixed(4)}`;
+  };
+
   const cleanup = async () => {
     if (recordingRef.current) {
       try {
@@ -444,6 +497,18 @@ export default function App() {
         }]} />
       </View>
 
+      {/* Location Status */}
+      <View style={styles.locationContainer}>
+        <Text style={styles.locationText}>{getLocationStatus()}</Text>
+        <TouchableOpacity
+          style={styles.refreshButton}
+          onPress={refreshLocation}
+          disabled={!hasPermissions}
+        >
+          <Text style={styles.refreshButtonText}>📍</Text>
+        </TouchableOpacity>
+      </View>
+
       <TouchableOpacity
         style={[styles.recordButton, { backgroundColor: getButtonColor() }]}
         onPress={handleButtonPress}
@@ -455,7 +520,7 @@ export default function App() {
       <Text style={styles.instructions}>
         {hasPermissions 
           ? 'Tap the button to start/stop recording. Speak your message and wait for AI response.'
-          : 'Please grant microphone and camera permissions to use this app.'
+          : 'Please grant microphone, camera, and location permissions to use this app.'
         }
       </Text>
 
@@ -481,7 +546,7 @@ const styles = StyleSheet.create({
   statusContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 40,
+    marginBottom: 20,
   },
   statusText: {
     fontSize: 16,
@@ -492,6 +557,29 @@ const styles = StyleSheet.create({
     width: 12,
     height: 12,
     borderRadius: 6,
+  },
+  locationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 30,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    backgroundColor: '#e8e8e8',
+    borderRadius: 10,
+  },
+  locationText: {
+    fontSize: 14,
+    color: '#555',
+    flex: 1,
+  },
+  refreshButton: {
+    marginLeft: 10,
+    padding: 8,
+    backgroundColor: '#ddd',
+    borderRadius: 20,
+  },
+  refreshButtonText: {
+    fontSize: 16,
   },
   recordButton: {
     width: 200,
