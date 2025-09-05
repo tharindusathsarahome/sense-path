@@ -3,6 +3,7 @@ import express from 'express';
 import http from 'http';
 import WebSocket from 'ws';
 import cors from 'cors';
+import os from 'os';
 import { GeminiOfficialAudioService } from './gemini-official-service';
 
 const app = express();
@@ -168,8 +169,22 @@ app.get('/health', (req, res) => {
 // Start server
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`WebSocket server ready`);
+  const networkInterfaces = os.networkInterfaces();
+  let ipAddress = 'localhost';
+  for (const interfaceName in networkInterfaces) {
+    const interfaces = networkInterfaces[interfaceName];
+    if (interfaces) {
+      for (const iface of interfaces) {
+        if (iface.family === 'IPv4' && !iface.internal) {
+          ipAddress = iface.address;
+          break;
+        }
+      }
+      if (ipAddress !== 'localhost') break;
+    }
+  }
+  console.log(`Server running at http://${ipAddress}:${PORT}`);
+  console.log(`WebSocket server ready at ws://${ipAddress}:${PORT}`);
   
   if (!process.env.GEMINI_API_KEY) {
     console.warn('⚠️  GEMINI_API_KEY environment variable not set!');

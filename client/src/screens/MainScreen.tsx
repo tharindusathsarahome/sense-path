@@ -14,6 +14,7 @@ import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
 import { Camera } from 'expo-camera';
 import * as Location from 'expo-location';
+import { CONFIG } from './../../config';
 
 // Components
 import {
@@ -27,7 +28,7 @@ import {
 import { WebSocketMessage } from '../types';
 
 const { width, height } = Dimensions.get('window');
-const SERVER_URL = 'ws://192.168.1.82:3000';
+const SERVER_URL = CONFIG.SERVER_URL;
 
 interface MainScreenProps {
   onBack: () => void;

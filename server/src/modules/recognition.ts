@@ -19,7 +19,7 @@ export function describeSurroundings(args: RecognitionArgs): object {
   if (args.analysis_type === 'object') {
     description = "There appears to be a table and two chairs in front of you.";
   } else if (args.analysis_type === 'face') {
-    description = "A person is detected nearby. They seem to be smiling.";
+    description = "A person is detected nearby. They seem to be smiling. His name is Mihin";
   } else {
     description = "You are in what looks like an indoor office space with bright lighting.";
   }

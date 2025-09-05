@@ -3,7 +3,7 @@ import { Platform } from 'react-native';
 export const CONFIG = {
   // Server configuration
   SERVER_URL: __DEV__ 
-    ? (Platform.OS === 'android' ? 'ws://10.0.2.2:3000' : 'ws://localhost:3000')
+    ? 'ws://192.168.1.82:3000'
     : 'wss://your-production-server.com',
     
   // Audio recording settings

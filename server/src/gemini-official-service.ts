@@ -362,57 +362,6 @@ User said: "${transcription}"`;
   }
 
   /**
-   * Step 1: Audio Understanding - Convert audio to text (Legacy method)
-   */
-  async audioToText(audioFilePath: string): Promise<string> {
-    try {
-      console.log(`🎯 Processing audio file: ${audioFilePath}`);
-
-      // Read audio file as base64
-      const base64AudioFile = fs.readFileSync(audioFilePath, {
-        encoding: 'base64',
-      });
-
-      console.log(`📊 Audio file size: ${base64AudioFile.length} characters (base64)`);
-      const contents = [
-        {
-          role: "system",
-          text: GEMINI_TRANSCRIBE_PROMPT,
-        },
-        {
-          inlineData: {
-            mimeType: "audio/wav",
-            data: base64AudioFile,
-          },
-        },
-      ];
-
-      console.log('🔄 Calling Gemini for audio understanding...');
-      const response = await this.ai.models.generateContent({
-        model: GeminiOfficialAudioService.MODEL_TRANSCRIBE,
-        contents: contents,
-      });
-
-      const textResult = response.text || '';
-      console.log(`💬 Transcribed text: "${textResult}"`);
-
-      // Save transcription for debugging
-      const transcriptionFile = join(
-        this.debugDir,
-        `transcription_${Date.now()}.txt`
-      );
-      fs.writeFileSync(transcriptionFile, textResult);
-      console.log(`💾 Saved transcription: ${transcriptionFile}`);
-
-      return textResult;
-
-    } catch (error) {
-      console.error('❌ Error in audio to text:', error);
-      throw error;
-    }
-  }
-
-  /**
    * Step 2: Text to Speech - Convert text to audio
    */
   async textToSpeech(text: string): Promise<Buffer> {
@@ -474,38 +423,6 @@ User said: "${transcription}"`;
 
     } catch (error) {
       console.error('❌ Error in text to speech:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Complete flow: Audio input -> Text -> Audio response
-   */
-  async processAudio(audioFilePath: string): Promise<Buffer> {
-    try {
-      this.messageCounter++;
-      console.log(`🎯 Starting audio processing flow #${this.messageCounter}`);
-
-      // Step 1: Convert audio to text
-      console.log('📝 Step 1: Audio to Text');
-      const transcribedText = await this.audioToText(audioFilePath);
-
-      // Step 2: Generate audio response with fallback
-      console.log('🎤 Step 2: Text to Speech');
-      try {
-        const audioResponse = await this.textToSpeech(transcribedText);
-        console.log(`✅ Audio processing flow #${this.messageCounter} completed`);
-        return audioResponse;
-      } catch (ttsError) {
-        console.error('❌ TTS failed, using text fallback:', ttsError);
-        // Return a simple text response instead of audio
-        const textResponse = `AI Response: ${transcribedText}`;
-        const fallbackAudio = await this.generateSimpleAudioFallback(textResponse);
-        return fallbackAudio;
-      }
-
-    } catch (error) {
-      console.error('❌ Error in audio processing flow:', error);
       throw error;
     }
   }
@@ -659,33 +576,6 @@ User said: "${transcription}"`;
 
     } catch (error) {
       console.error('❌ Error in integrated audio processing flow:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Process base64 audio (for WebSocket integration)
-   */
-  async processBase64Audio(base64Audio: string, clientId: string): Promise<Buffer> {
-    try {
-      // Save the incoming audio to a temporary file
-      const tempFile = join(this.debugDir, `temp_${clientId}_${Date.now()}.wav`);
-      const audioBuffer = Buffer.from(base64Audio, 'base64');
-      fs.writeFileSync(tempFile, audioBuffer);
-
-      console.log(`💾 Saved temporary audio file: ${tempFile}`);
-
-      // Process using the complete flow
-      const result = await this.processAudio(tempFile);
-
-      // Clean up temporary file
-      fs.unlinkSync(tempFile);
-      console.log(`🗑️ Cleaned up temporary file: ${tempFile}`);
-
-      return result;
-
-    } catch (error) {
-      console.error('❌ Error processing base64 audio:', error);
       throw error;
     }
   }
